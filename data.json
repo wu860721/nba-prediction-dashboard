@@ -1,6 +1,46 @@
 {
   "season": "2026-27",
   "sourceUrl": "https://site.api.espn.com/apis/v2/sports/basketball/nba/standings?season=2027&type=0&limit=100",
-  "lastUpdated": null,
-  "snapshots": []
+  "lastUpdated": "2026-11-05T16:43:30+08:00",
+  "snapshots": [
+    {
+      "date": "2026-11-05",
+      "E": [
+        "PHI",
+        "DET",
+        "BOS",
+        "ATL",
+        "TOR",
+        "CLE",
+        "NYK",
+        "WAS",
+        "MIA",
+        "CHA",
+        "IND",
+        "ORL",
+        "BKN",
+        "CHI",
+        "MIL"
+      ],
+      "W": [
+        "POR",
+        "LAL",
+        "HOU",
+        "OKC",
+        "SAS",
+        "MEM",
+        "MIN",
+        "GSW",
+        "DEN",
+        "NOP",
+        "DAL",
+        "PHX",
+        "LAC",
+        "UTA",
+        "SAC"
+      ],
+      "source": "ESPN",
+      "retrievedAt": "2026-11-05T16:43:30+08:00"
+    }
+  ]
 }
