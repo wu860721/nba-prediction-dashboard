@@ -1,85 +1,124 @@
 #!/usr/bin/env python3
-"""Fetch NBA conference standings from ESPN, validate and append one daily snapshot."""
+"""Official NBA conference ranking only; fail closed, never infer tie-breakers.
+
+A successful HTTP fetch is not a successful snapshot. We require 30 team identities,
+unique and contiguous official conference ranks, valid regular-season data, and
+non-regressing overall games played. On failure, data.json is not modified.
+"""
 import datetime as dt
 import json
 import os
 from pathlib import Path
+import urllib.parse
 import urllib.request
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'data.json'
-URL = 'https://site.api.espn.com/apis/v2/sports/basketball/nba/standings?season=2027&type=0&limit=100'
+SEASON = '2026-27'
+SOURCE_PAGE = 'https://www.nba.com/standings?Season=2026-27&GroupBy=conf'
+API_BASE = 'https://stats.nba.com/stats/leaguestandingsv3'
+PARAMS = {'LeagueID':'00', 'Season':'2026-27', 'SeasonType':'Regular Season', 'Section':'overall'}
+URL = API_BASE + '?' + urllib.parse.urlencode(PARAMS)
 E = set('TOR MIA NYK PHI BOS CLE DET ORL IND WAS ATL CHI CHA MIL BKN'.split())
 W = set('OKC SAS HOU DEN LAL UTA MIN PHX DAL POR GSW MEM LAC NOP SAC'.split())
-ALIASES = {'WSH': 'WAS', 'SA': 'SAS', 'GS': 'GSW', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA'}
+TEAM_NAMES = {'hawks':'ATL','celtics':'BOS','nets':'BKN','hornets':'CHA','bulls':'CHI',
+'cavaliers':'CLE','mavericks':'DAL','nuggets':'DEN','pistons':'DET','warriors':'GSW',
+'rockets':'HOU','pacers':'IND','clippers':'LAC','lakers':'LAL','grizzlies':'MEM',
+'heat':'MIA','bucks':'MIL','timberwolves':'MIN','pelicans':'NOP','knicks':'NYK',
+ 'thunder':'OKC','magic':'ORL','76ers':'PHI','suns':'PHX','trail blazers':'POR',
+'kings':'SAC','spurs':'SAS','raptors':'TOR','jazz':'UTA','wizards':'WAS'}
 
 
 def get_json(url):
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; NBA-Prediction-Tracker/1.0)', 'Accept': 'application/json'})
-    with urllib.request.urlopen(req, timeout=35) as response:
-        return json.load(response)
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0 Safari/537.36',
+               'Accept':'application/json, text/plain, */*',
+               'Accept-Language':'en-US,en;q=0.9',
+               'Referer':'https://www.nba.com/', 'Origin':'https://www.nba.com',
+               'x-nba-stats-origin':'stats', 'x-nba-stats-token':'true'}
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=24) as r:
+        return json.load(r)
 
 
-def normalize(code):
-    s = (code or '').upper().strip()
-    return ALIASES.get(s, s)
+def standings_result(raw):
+    results = raw.get('resultSets') or raw.get('resultSet')
+    if isinstance(results, dict): results = [results]
+    if not isinstance(results, list):
+        raise ValueError('NBA stats did not return resultSets')
+    table = next((x for x in results if str(x.get('name','')).lower()=='standings'), None)
+    if not table: raise ValueError('NBA stats missing Standings table')
+    headers = [str(h).strip().lower() for h in table['headers']]
+    rows = table['rowSet']
+    if len(rows)!=30: raise ValueError(f'Expected 30 NBA teams; got {len(rows)}')
+    def cell(row,*names):
+        for n in names:
+            if n.lower() in headers:
+                return row[headers.index(n.lower())]
+        raise ValueError('Missing NBA field: '+str(names))
+    result={'E':[],'W':[]}
+    recs={}
+    for row in rows:
+        conf=str(cell(row,'Conference')).strip().lower()
+        c = 'E' if conf in ('east','eastern') else 'W' if conf in ('west','western') else None
+        if not c: raise ValueError(f'Unknown conference {conf}')
+        name=str(cell(row,'TeamName')).strip().lower()
+        code=TEAM_NAMES.get(name)
+        if not code: raise ValueError('Unknown NBA team '+name)
+        rank_value=cell(row,'PlayoffRank','ConferenceRank')
+        try:
+            rank=float(rank_value)
+            if not rank.is_integer() or not 1 <= rank <= 15: raise ValueError()
+            rank=int(rank)
+        except (TypeError,ValueError):
+            raise ValueError(f'Invalid official conference rank {rank_value} for {code}')
+        wins=int(cell(row,'WINS'))
+        losses=int(cell(row,'LOSSES'))
+        if wins<0 or losses<0 or wins+losses>82:
+            raise ValueError('Invalid NBA W/L record')
+        result[c].append((rank,code))
+        recs[code]={'wins':wins,'losses':losses}
+    for c,allowed in (('E',E),('W',W)):
+        teams=result[c]
+        if {k for _,k in teams} != allowed or sorted(r for r,_ in teams)!=list(range(1,16)):
+            raise ValueError(f'Non-unique or incomplete NBA {c} conference ranks')
+        result[c]=[code for rank,code in sorted(teams)]
+    return result,recs
 
 
-def descendants(node):
-    yield node
-    for child in node.get('children', []) or []:
-        yield from descendants(child)
-
-
-def conference_entries(raw):
-    result = {}
-    for group in descendants(raw):
-        name = (group.get('name') or group.get('displayName') or '').lower()
-        abbr = (group.get('abbreviation') or '').lower()
-        if ('eastern conference' in name or 'western conference' in name or name in ('east', 'west') or abbr in ('east', 'west')):
-            conf = 'E' if ('east' in name or abbr == 'east') else 'W'
-            entries = (group.get('standings') or {}).get('entries') or []
-            if len(entries) != 15:
-                continue
-            ranked = []
-            for index, entry in enumerate(entries):
-                team = entry.get('team') or {}
-                code = normalize(team.get('abbreviation'))
-                stats = entry.get('stats') or []
-                # ESPN may provide ordinal team seeding; use it only if all 15 valid.
-                seed = None
-                for stat in stats:
-                    if stat.get('name') in ('playoffSeed', 'rank') or stat.get('abbreviation') == 'SEED':
-                        try:
-                            n = int(float(stat.get('value', stat.get('displayValue'))))
-                            if 1 <= n <= 15: seed = n
-                        except (TypeError, ValueError):
-                            pass
-                ranked.append((code, seed, index))
-            codes = [r[0] for r in ranked]
-            if set(codes) != (E if conf == 'E' else W):
-                continue
-            seeds = [r[1] for r in ranked]
-            if set(seeds) == set(range(1,16)):
-                ranked.sort(key=lambda r: r[1])
-            result[conf] = [r[0] for r in ranked]
-    if set(result) != {'E', 'W'}:
-        raise ValueError('ESPN did not return 15 complete teams in both conference standings; refusing to save incomplete data.')
-    return result
+def validate_not_regressed(previous, current):
+    if not previous: return
+    if previous.get('verification') != 'official': return
+    for code,record in current.items():
+        old=previous.get('records',{}).get(code)
+        if old and record['wins']+record['losses'] < old['wins']+old['losses']:
+            raise ValueError('Fresh data regressed games played for '+code)
 
 
 def main():
-    now = dt.datetime.now(ZoneInfo('Asia/Taipei'))
-    today = now.strftime('%Y-%m-%d')
-    data = get_json(URL)
-    ranks = conference_entries(data)
-    stored = json.loads(OUT.read_text(encoding='utf-8')) if OUT.exists() else {'season':'2026-27','snapshots':[]}
-    snaps = [s for s in stored.get('snapshots',[]) if s.get('date') != today]
-    snaps.append({'date':today, 'E':ranks['E'], 'W':ranks['W'], 'source':'ESPN', 'retrievedAt':now.isoformat(timespec='seconds')})
-    stored.update({'season':'2026-27','sourceUrl':URL,'lastUpdated':now.isoformat(timespec='seconds'),'snapshots':sorted(snaps,key=lambda s:s['date'])})
-    OUT.write_text(json.dumps(stored,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-    print('Updated', today, 'E:', ','.join(ranks['E']), 'W:', ','.join(ranks['W']))
+    now=dt.datetime.now(ZoneInfo('Asia/Taipei'))
+    today=now.date().isoformat()
+    raw=get_json(URL)
+    ranks,records=standings_result(raw)
+    stored=json.loads(OUT.read_text(encoding='utf-8')) if OUT.exists() else {'season':SEASON,'snapshots':[]}
+    if stored.get('season') != SEASON: raise ValueError('Unexpected season in data.json')
+    snaps=stored.get('snapshots',[])
+    previous=max((x for x in snaps if x.get('verification')=='official' and x.get('date','')<=today),key=lambda x:x['date'],default=None)
+    validate_not_regressed(previous,records)
+    snapshot={'date':today,'E':ranks['E'],'W':ranks['W'],'source':'NBA Stats',
+              'verification':'official','records':records,'sourceUrl':SOURCE_PAGE,
+              'apiUrl':URL,'retrievedAt':now.isoformat(timespec='seconds')}
+    # On success, retain prior history; latest date wins. Legacy ESPN records remain flagged unverified.
+    snaps=[s for s in snaps if s.get('date')!=today]
+    snaps.append(snapshot)
+    stored.update({'season':SEASON,'sourceUrl':SOURCE_PAGE,'apiUrl':URL,
+                   'lastUpdated':snapshot['retrievedAt'],'snapshots':sorted(snaps,key=lambda s:s['date'])})
+    # Atomic write: failed fetch / validation never touches the existing file.
+    tmp=OUT.with_suffix('.json.tmp')
+    tmp.write_text(json.dumps(stored,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    os.replace(tmp,OUT)
+    print('NBA OFFICIAL',today,'E:',','.join(ranks['E']),'W:',','.join(ranks['W']))
+
 
 if __name__=='__main__':
     main()
