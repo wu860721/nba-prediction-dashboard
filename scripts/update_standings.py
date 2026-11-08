@@ -1,124 +1,171 @@
 #!/usr/bin/env python3
-"""Official NBA conference ranking only; fail closed, never infer tie-breakers.
+"""Fetch explicitly ordered NBA conference tables; never guess ordering from API arrays.
 
-A successful HTTP fetch is not a successful snapshot. We require 30 team identities,
-unique and contiguous official conference ranks, valid regular-season data, and
-non-regressing overall games played. On failure, data.json is not modified.
+Source: Iskoran published ranking (third-party, tie breaking by point differential).
+Optional second-source W/L corroboration: StandingsToday. Fail closed on stale,
+partial, inconsistent, malformed, or regressing records. Do not label as official.
 """
 import datetime as dt
 import json
 import os
-from pathlib import Path
-import urllib.parse
+import re
 import urllib.request
+from pathlib import Path
 from zoneinfo import ZoneInfo
+from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'data.json'
 SEASON = '2026-27'
-SOURCE_PAGE = 'https://www.nba.com/standings?Season=2026-27&GroupBy=conf'
-API_BASE = 'https://stats.nba.com/stats/leaguestandingsv3'
-PARAMS = {'LeagueID':'00', 'Season':'2026-27', 'SeasonType':'Regular Season', 'Section':'overall'}
-URL = API_BASE + '?' + urllib.parse.urlencode(PARAMS)
+PRIMARY = 'https://iskoran.com/nba/standings/'
+SECONDARY = 'https://standingstoday.com/nba/'
 E = set('TOR MIA NYK PHI BOS CLE DET ORL IND WAS ATL CHI CHA MIL BKN'.split())
 W = set('OKC SAS HOU DEN LAL UTA MIN PHX DAL POR GSW MEM LAC NOP SAC'.split())
-TEAM_NAMES = {'hawks':'ATL','celtics':'BOS','nets':'BKN','hornets':'CHA','bulls':'CHI',
-'cavaliers':'CLE','mavericks':'DAL','nuggets':'DEN','pistons':'DET','warriors':'GSW',
-'rockets':'HOU','pacers':'IND','clippers':'LAC','lakers':'LAL','grizzlies':'MEM',
-'heat':'MIA','bucks':'MIL','timberwolves':'MIN','pelicans':'NOP','knicks':'NYK',
- 'thunder':'OKC','magic':'ORL','76ers':'PHI','suns':'PHX','trail blazers':'POR',
-'kings':'SAC','spurs':'SAS','raptors':'TOR','jazz':'UTA','wizards':'WAS'}
+NAMES = {
+ 'ATL':'Atlanta Hawks','BOS':'Boston Celtics','BKN':'Brooklyn Nets','CHA':'Charlotte Hornets',
+ 'CHI':'Chicago Bulls','CLE':'Cleveland Cavaliers','DAL':'Dallas Mavericks','DEN':'Denver Nuggets',
+ 'DET':'Detroit Pistons','GSW':'Golden State Warriors','HOU':'Houston Rockets','IND':'Indiana Pacers',
+ 'LAC':'LA Clippers','LAL':'Los Angeles Lakers','MEM':'Memphis Grizzlies','MIA':'Miami Heat',
+ 'MIL':'Milwaukee Bucks','MIN':'Minnesota Timberwolves','NOP':'New Orleans Pelicans',
+ 'NYK':'New York Knicks','OKC':'Oklahoma City Thunder','ORL':'Orlando Magic','PHI':'Philadelphia 76ers',
+ 'PHX':'Phoenix Suns','POR':'Portland Trail Blazers','SAC':'Sacramento Kings','SAS':'San Antonio Spurs',
+ 'TOR':'Toronto Raptors','UTA':'Utah Jazz','WAS':'Washington Wizards'
+}
+ALIAS = {'LAC':['Los Angeles Clippers'], 'POR':['Portland TrailBlazers','Portland Trailblazers'],
+         'SAS':['San Antonio Spurs'], 'NYK':['New York Knicks']}
 
 
-def get_json(url):
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0 Safari/537.36',
-               'Accept':'application/json, text/plain, */*',
-               'Accept-Language':'en-US,en;q=0.9',
-               'Referer':'https://www.nba.com/', 'Origin':'https://www.nba.com',
-               'x-nba-stats-origin':'stats', 'x-nba-stats-token':'true'}
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=24) as r:
-        return json.load(r)
+def request_text(url):
+    req=urllib.request.Request(url,headers={
+        'User-Agent':'Mozilla/5.0 (compatible; NBA-Prediction-Standings/2.0; +https://github.com/)',
+        'Accept':'text/html,application/xhtml+xml', 'Cache-Control':'no-cache'})
+    with urllib.request.urlopen(req,timeout=18) as response:
+        if response.status != 200: raise ValueError(f'{url}: HTTP {response.status}')
+        return response.read(3_000_000).decode('utf-8',errors='replace')
 
 
-def standings_result(raw):
-    results = raw.get('resultSets') or raw.get('resultSet')
-    if isinstance(results, dict): results = [results]
-    if not isinstance(results, list):
-        raise ValueError('NBA stats did not return resultSets')
-    table = next((x for x in results if str(x.get('name','')).lower()=='standings'), None)
-    if not table: raise ValueError('NBA stats missing Standings table')
-    headers = [str(h).strip().lower() for h in table['headers']]
-    rows = table['rowSet']
-    if len(rows)!=30: raise ValueError(f'Expected 30 NBA teams; got {len(rows)}')
-    def cell(row,*names):
-        for n in names:
-            if n.lower() in headers:
-                return row[headers.index(n.lower())]
-        raise ValueError('Missing NBA field: '+str(names))
-    result={'E':[],'W':[]}
-    recs={}
-    for row in rows:
-        conf=str(cell(row,'Conference')).strip().lower()
-        c = 'E' if conf in ('east','eastern') else 'W' if conf in ('west','western') else None
-        if not c: raise ValueError(f'Unknown conference {conf}')
-        name=str(cell(row,'TeamName')).strip().lower()
-        code=TEAM_NAMES.get(name)
-        if not code: raise ValueError('Unknown NBA team '+name)
-        rank_value=cell(row,'PlayoffRank','ConferenceRank')
-        try:
-            rank=float(rank_value)
-            if not rank.is_integer() or not 1 <= rank <= 15: raise ValueError()
-            rank=int(rank)
-        except (TypeError,ValueError):
-            raise ValueError(f'Invalid official conference rank {rank_value} for {code}')
-        wins=int(cell(row,'WINS'))
-        losses=int(cell(row,'LOSSES'))
-        if wins<0 or losses<0 or wins+losses>82:
-            raise ValueError('Invalid NBA W/L record')
-        result[c].append((rank,code))
-        recs[code]={'wins':wins,'losses':losses}
-    for c,allowed in (('E',E),('W',W)):
-        teams=result[c]
-        if {k for _,k in teams} != allowed or sorted(r for r,_ in teams)!=list(range(1,16)):
-            raise ValueError(f'Non-unique or incomplete NBA {c} conference ranks')
-        result[c]=[code for rank,code in sorted(teams)]
-    return result,recs
+def identify_team(name):
+    s=re.sub(r'[^a-z0-9]+',' ',name.casefold()).strip()
+    for code,full in NAMES.items():
+        for alias in [full]+ALIAS.get(code,[]):
+            a=re.sub(r'[^a-z0-9]+',' ',alias.casefold()).strip()
+            if a and (s==a or s.startswith(a+' ') or s.endswith(' '+a)):
+                return code
+    return None
 
 
-def validate_not_regressed(previous, current):
-    if not previous: return
-    if previous.get('verification') != 'official': return
-    for code,record in current.items():
-        old=previous.get('records',{}).get(code)
-        if old and record['wins']+record['losses'] < old['wins']+old['losses']:
-            raise ValueError('Fresh data regressed games played for '+code)
+def source_date(soup):
+    # The publisher uses a human-readable update stamp. Never substitute scrape time.
+    text=soup.get_text(' ',strip=True)
+    m=re.search(r'Updated\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(20\d\d)',text,re.I)
+    if not m: raise ValueError('Primary standings missing explicit Updated date')
+    return dt.datetime.strptime(' '.join(m.groups()),'%B %d %Y').date()
+
+
+def parse_iskoran(html):
+    soup=BeautifulSoup(html,'html.parser')
+    if '2026-27' not in soup.get_text(' ',strip=True):
+        raise ValueError('Primary page does not identify 2026-27 NBA season')
+    published=source_date(soup)
+    ranks={}; records={}
+    for label,allowed in [('East',E),('West',W)]:
+        heading=next((h for h in soup.find_all(['h1','h2','h3']) if h.get_text(' ',strip=True).lower()==label.lower()),None)
+        if heading is None: raise ValueError(f'Missing {label} conference heading')
+        table=heading.find_next('table')
+        if table is None: raise ValueError(f'Missing {label} standings table')
+        entries=[]
+        for tr in table.find_all('tr'):
+            tds=tr.find_all('td')
+            if len(tds)<4: continue
+            rank_str=tds[0].get_text(' ',strip=True)
+            if not rank_str.isdigit(): continue
+            rank=int(rank_str)
+            code=identify_team(tds[1].get_text(' ',strip=True))
+            if code is None: raise ValueError('Unknown NBA team: '+tds[1].get_text(' ',strip=True))
+            if code not in allowed: raise ValueError(f'{code} in wrong conference')
+            w=int(tds[2].get_text(' ',strip=True)); l=int(tds[3].get_text(' ',strip=True))
+            if min(w,l)<0 or w+l>82: raise ValueError(f'Invalid {code} season record')
+            entries.append((rank,code)); records[code]={'wins':w,'losses':l}
+        if len(entries)!=15 or {r for r,_ in entries}!=set(range(1,16)) or {c for _,c in entries}!=allowed:
+            raise ValueError(f'Invalid {label} ranks: expected 15 unique complete ranks; got {entries}')
+        ranks[label[0].upper()]=[code for _,code in sorted(entries)]
+    return published,ranks,records
+
+
+def parse_secondary_records(html):
+    """Independent W/L corroboration; its page is organized by divisions, not overall rank."""
+    soup=BeautifulSoup(html,'html.parser')
+    if '2026-27' not in soup.get_text(' ',strip=True):
+        raise ValueError('Secondary standings have wrong season')
+    found={}
+    for tr in soup.find_all('tr'):
+        tds=tr.find_all('td')
+        if len(tds)<4 or not tds[0].get_text(' ',strip=True).isdigit():continue
+        code=identify_team(tds[1].get_text(' ',strip=True))
+        if not code: continue
+        a=tds[2].get_text(' ',strip=True);b=tds[3].get_text(' ',strip=True)
+        if not (a.isdigit() and b.isdigit()):continue
+        record={'wins':int(a),'losses':int(b)}
+        if code in found and found[code]!=record:raise ValueError(f'Secondary has inconsistent {code} records')
+        found[code]=record
+    if set(found)!=set(NAMES):raise ValueError(f'Secondary incomplete ({len(found)}/30 teams)')
+    return found
+
+
+def validate_freshness(published,now):
+    age=(now.date()-published).days
+    if not 0<=age<=1:
+        raise ValueError(f'Source outdated or future dated: published={published}, today={now.date()}')
+
+
+def validate_previous(snapshots,records,today):
+    for prior in reversed(sorted(snapshots,key=lambda s:s.get('date',''))):
+        if prior.get('date','')>today or not prior.get('records'):continue
+        if prior.get('verification') not in ('third-party-crosschecked','third-party'):continue
+        for code,record in records.items():
+            old=prior['records'].get(code)
+            if old and (record['wins']<old['wins'] or record['losses']<old['losses']):
+                raise ValueError(f'{code} W/L went backwards; refuse stale snapshot')
+        break
 
 
 def main():
     now=dt.datetime.now(ZoneInfo('Asia/Taipei'))
+    published,ranks,records=parse_iskoran(request_text(PRIMARY))
+    validate_freshness(published,now)
+    check='not-available'
+    try:
+        alternate=parse_secondary_records(request_text(SECONDARY))
+        disagreements={code:(records[code],alternate[code]) for code in NAMES if records[code]!=alternate[code]}
+        if disagreements:raise ValueError(f'Independent source W/L mismatches: {disagreements}')
+        check='matched-30-records'
+    except (OSError,TimeoutError,ValueError) as ex:
+        # A mismatch is a hard error; missing secondary feed is an explicit caveat.
+        if 'mismatches' in str(ex):raise
+        print('Secondary cross-check unavailable:',str(ex))
     today=now.date().isoformat()
-    raw=get_json(URL)
-    ranks,records=standings_result(raw)
     stored=json.loads(OUT.read_text(encoding='utf-8')) if OUT.exists() else {'season':SEASON,'snapshots':[]}
-    if stored.get('season') != SEASON: raise ValueError('Unexpected season in data.json')
+    if stored.get('season')!=SEASON:raise ValueError('Season mismatch in existing data file')
     snaps=stored.get('snapshots',[])
-    previous=max((x for x in snaps if x.get('verification')=='official' and x.get('date','')<=today),key=lambda x:x['date'],default=None)
-    validate_not_regressed(previous,records)
-    snapshot={'date':today,'E':ranks['E'],'W':ranks['W'],'source':'NBA Stats',
-              'verification':'official','records':records,'sourceUrl':SOURCE_PAGE,
-              'apiUrl':URL,'retrievedAt':now.isoformat(timespec='seconds')}
-    # On success, retain prior history; latest date wins. Legacy ESPN records remain flagged unverified.
-    snaps=[s for s in snaps if s.get('date')!=today]
-    snaps.append(snapshot)
-    stored.update({'season':SEASON,'sourceUrl':SOURCE_PAGE,'apiUrl':URL,
-                   'lastUpdated':snapshot['retrievedAt'],'snapshots':sorted(snaps,key=lambda s:s['date'])})
-    # Atomic write: failed fetch / validation never touches the existing file.
-    tmp=OUT.with_suffix('.json.tmp')
+    validate_previous(snaps,records,today)
+    stamp=now.isoformat(timespec='seconds')
+    snap={'date':today,'E':ranks['E'],'W':ranks['W'],'source':'Iskoran (third-party)',
+          'verification':'third-party-crosschecked' if check=='matched-30-records' else 'third-party',
+          'crossCheck':check,'tieBreaker':'Win percentage, then wins and point differential (publisher policy; not NBA official)',
+          'sourceDate':published.isoformat(),'sourceUrl':PRIMARY,'retrievedAt':stamp,'records':records}
+    # Preserve earlier entries, but never mislabel legacy ESPN results as official.
+    for previous in snaps:
+        if previous.get('source','').startswith('ESPN') and previous.get('verification') not in ('official',):
+            previous['verification']='unverified'
+    snaps=[s for s in snaps if s.get('date')!=today]+[snap]
+    stored.update({'season':SEASON,'sourceUrl':PRIMARY,'lastUpdated':stamp,
+                   'snapshots':sorted(snaps,key=lambda s:s['date'])})
+    stored.pop('apiUrl',None)
+    tmp=OUT.with_name('data.json.tmp')
     tmp.write_text(json.dumps(stored,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     os.replace(tmp,OUT)
-    print('NBA OFFICIAL',today,'E:',','.join(ranks['E']),'W:',','.join(ranks['W']))
+    print(f'SUCCESS: {today}, source date {published}, corroboration={check}')
+    print('EAST:',','.join(ranks['E']))
+    print('WEST:',','.join(ranks['W']))
 
-
-if __name__=='__main__':
-    main()
+if __name__=='__main__':main()
