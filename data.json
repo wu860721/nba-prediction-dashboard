@@ -1,7 +1,7 @@
 {
   "season": "2026-27",
   "sourceUrl": "https://iskoran.com/nba/standings/",
-  "lastUpdated": "2026-11-22T16:09:04+08:00",
+  "lastUpdated": "2026-11-23T16:31:19+08:00",
   "snapshots": [
     {
       "date": "2026-11-05",
@@ -2606,6 +2606,172 @@
         "UTA": {
           "wins": 3,
           "losses": 14
+        },
+        "SAC": {
+          "wins": 2,
+          "losses": 14
+        }
+      }
+    },
+    {
+      "date": "2026-11-23",
+      "E": [
+        "PHI",
+        "BOS",
+        "NYK",
+        "ATL",
+        "DET",
+        "MIA",
+        "CLE",
+        "ORL",
+        "WAS",
+        "TOR",
+        "IND",
+        "CHA",
+        "CHI",
+        "BKN",
+        "MIL"
+      ],
+      "W": [
+        "SAS",
+        "LAL",
+        "MIN",
+        "MEM",
+        "HOU",
+        "DEN",
+        "POR",
+        "OKC",
+        "DAL",
+        "PHX",
+        "GSW",
+        "NOP",
+        "LAC",
+        "UTA",
+        "SAC"
+      ],
+      "source": "Iskoran (third-party)",
+      "verification": "third-party-crosschecked",
+      "crossCheck": "matched-30-records",
+      "tieBreaker": "Win percentage, then wins and point differential (publisher policy; not NBA official)",
+      "sourceDate": "2026-11-23",
+      "sourceUrl": "https://iskoran.com/nba/standings/",
+      "retrievedAt": "2026-11-23T16:31:19+08:00",
+      "records": {
+        "PHI": {
+          "wins": 14,
+          "losses": 3
+        },
+        "BOS": {
+          "wins": 11,
+          "losses": 6
+        },
+        "NYK": {
+          "wins": 11,
+          "losses": 6
+        },
+        "ATL": {
+          "wins": 11,
+          "losses": 6
+        },
+        "DET": {
+          "wins": 10,
+          "losses": 6
+        },
+        "MIA": {
+          "wins": 10,
+          "losses": 6
+        },
+        "CLE": {
+          "wins": 9,
+          "losses": 8
+        },
+        "ORL": {
+          "wins": 7,
+          "losses": 9
+        },
+        "WAS": {
+          "wins": 7,
+          "losses": 11
+        },
+        "TOR": {
+          "wins": 6,
+          "losses": 10
+        },
+        "IND": {
+          "wins": 5,
+          "losses": 12
+        },
+        "CHA": {
+          "wins": 4,
+          "losses": 11
+        },
+        "CHI": {
+          "wins": 4,
+          "losses": 12
+        },
+        "BKN": {
+          "wins": 3,
+          "losses": 12
+        },
+        "MIL": {
+          "wins": 1,
+          "losses": 16
+        },
+        "SAS": {
+          "wins": 14,
+          "losses": 3
+        },
+        "LAL": {
+          "wins": 14,
+          "losses": 3
+        },
+        "MIN": {
+          "wins": 12,
+          "losses": 5
+        },
+        "MEM": {
+          "wins": 12,
+          "losses": 5
+        },
+        "HOU": {
+          "wins": 12,
+          "losses": 5
+        },
+        "DEN": {
+          "wins": 10,
+          "losses": 5
+        },
+        "POR": {
+          "wins": 10,
+          "losses": 6
+        },
+        "OKC": {
+          "wins": 10,
+          "losses": 7
+        },
+        "DAL": {
+          "wins": 10,
+          "losses": 7
+        },
+        "PHX": {
+          "wins": 8,
+          "losses": 7
+        },
+        "GSW": {
+          "wins": 9,
+          "losses": 8
+        },
+        "NOP": {
+          "wins": 5,
+          "losses": 13
+        },
+        "LAC": {
+          "wins": 4,
+          "losses": 11
+        },
+        "UTA": {
+          "wins": 3,
+          "losses": 15
         },
         "SAC": {
           "wins": 2,
