@@ -1,7 +1,7 @@
 {
   "season": "2026-27",
   "sourceUrl": "https://iskoran.com/nba/standings/",
-  "lastUpdated": "2026-11-26T16:29:33+08:00",
+  "lastUpdated": "2026-11-27T16:28:05+08:00",
   "snapshots": [
     {
       "date": "2026-11-05",
@@ -3154,6 +3154,172 @@
       "sourceDate": "2026-11-26",
       "sourceUrl": "https://iskoran.com/nba/standings/",
       "retrievedAt": "2026-11-26T16:29:33+08:00",
+      "records": {
+        "PHI": {
+          "wins": 15,
+          "losses": 4
+        },
+        "BOS": {
+          "wins": 12,
+          "losses": 6
+        },
+        "NYK": {
+          "wins": 12,
+          "losses": 6
+        },
+        "DET": {
+          "wins": 11,
+          "losses": 6
+        },
+        "ATL": {
+          "wins": 11,
+          "losses": 6
+        },
+        "MIA": {
+          "wins": 10,
+          "losses": 7
+        },
+        "CLE": {
+          "wins": 9,
+          "losses": 10
+        },
+        "ORL": {
+          "wins": 7,
+          "losses": 10
+        },
+        "WAS": {
+          "wins": 7,
+          "losses": 12
+        },
+        "TOR": {
+          "wins": 6,
+          "losses": 11
+        },
+        "IND": {
+          "wins": 6,
+          "losses": 12
+        },
+        "CHI": {
+          "wins": 6,
+          "losses": 12
+        },
+        "BKN": {
+          "wins": 4,
+          "losses": 13
+        },
+        "CHA": {
+          "wins": 4,
+          "losses": 13
+        },
+        "MIL": {
+          "wins": 2,
+          "losses": 17
+        },
+        "LAL": {
+          "wins": 15,
+          "losses": 3
+        },
+        "SAS": {
+          "wins": 15,
+          "losses": 4
+        },
+        "MIN": {
+          "wins": 14,
+          "losses": 5
+        },
+        "MEM": {
+          "wins": 14,
+          "losses": 5
+        },
+        "HOU": {
+          "wins": 14,
+          "losses": 5
+        },
+        "POR": {
+          "wins": 12,
+          "losses": 6
+        },
+        "DEN": {
+          "wins": 10,
+          "losses": 6
+        },
+        "DAL": {
+          "wins": 11,
+          "losses": 7
+        },
+        "GSW": {
+          "wins": 10,
+          "losses": 8
+        },
+        "PHX": {
+          "wins": 9,
+          "losses": 8
+        },
+        "OKC": {
+          "wins": 10,
+          "losses": 9
+        },
+        "NOP": {
+          "wins": 5,
+          "losses": 14
+        },
+        "LAC": {
+          "wins": 4,
+          "losses": 13
+        },
+        "UTA": {
+          "wins": 3,
+          "losses": 16
+        },
+        "SAC": {
+          "wins": 2,
+          "losses": 16
+        }
+      }
+    },
+    {
+      "date": "2026-11-27",
+      "E": [
+        "PHI",
+        "BOS",
+        "NYK",
+        "DET",
+        "ATL",
+        "MIA",
+        "CLE",
+        "ORL",
+        "WAS",
+        "TOR",
+        "IND",
+        "CHI",
+        "BKN",
+        "CHA",
+        "MIL"
+      ],
+      "W": [
+        "LAL",
+        "SAS",
+        "MIN",
+        "MEM",
+        "HOU",
+        "POR",
+        "DEN",
+        "DAL",
+        "GSW",
+        "PHX",
+        "OKC",
+        "NOP",
+        "LAC",
+        "UTA",
+        "SAC"
+      ],
+      "source": "Iskoran (third-party)",
+      "verification": "third-party-crosschecked",
+      "crossCheck": "matched-30-records",
+      "tieBreaker": "Win percentage, then wins and point differential (publisher policy; not NBA official)",
+      "sourceDate": "2026-11-26",
+      "sourceUrl": "https://iskoran.com/nba/standings/",
+      "retrievedAt": "2026-11-27T16:28:05+08:00",
       "records": {
         "PHI": {
           "wins": 15,
